@@ -3,6 +3,51 @@
 Provider-neutral controls to limit reasoning spend across model calls.
 Dependency-free Python 3.
 
+## Start cheaply, escalate on failed checks
+
+`AdaptiveGovernor` allocates reasoning before a call. It starts with a small
+probe, learns a cheaper starting route after three externally verified
+first-attempt successes, and doubles the next allowance only after a failed
+check. Any failure revokes familiarity. Unknown verification stops for review.
+
+```python
+from adaptive import AdaptiveGovernor
+
+controller = AdaptiveGovernor("/tmp/reasoning-history.sqlite",
+                              initial_tokens=256, familiar_tokens=64,
+                              max_tokens=4096, max_rounds=4)
+attempt = controller.start("model-version:prompt-v2:tools-v1:task-family:constraints")
+plan = attempt.next_plan()
+# Your adapter calls the model with plan.tokens as its reasoning limit.
+# Then run an independent check (tests, schema validation, or a task verifier).
+result = attempt.report(tokens_used=100, verified=False)
+if result == "retry":
+    plan = attempt.next_plan()  # larger allowance, within remaining total budget
+controller.close()
+```
+
+The adapter must carry the task and failed-check feedback into each retry.
+Do not make a call when a plan returns zero. A `verified` result ends the attempt;
+`verification_required`, `attempt_limit`, and `budget_exhausted` require stopping
+or human review. No answer is accepted merely because its budget ran out.
+The total ceiling counts actual reasoning usage across retries, including
+provider overshoots; the controller cannot undo already billed usage.
+
+History persists in SQLite when a path is supplied (default is in-memory).
+It stores identity keys and success streaks, not prompts or answers. Keep it
+outside the checkout. Scope keys to model/prompt/tool versions and task
+constraints; change the key when these change. Familiarity is a routing prior,
+not proof a smaller budget will work. Failures reset it, and every answer still
+needs verification. `high_stakes=True` disables the learned cheap route, but
+does not replace domain-specific safety checks. Use one controller per worker;
+parallel budget reservation and automatic semantic task classification are not
+implemented. This controller learns budget routing, not reusable answer content.
+
+This replaces unverified entropy confidence with measurable task outcomes in
+the adaptive workflow. It is a testable policy, not a claim of novel research
+or demonstrated model savings. Compare total billed cost and verifier pass
+rates against fixed-budget baselines on your own tasks.
+
 ## Control the next call's budget
 
 ```python
@@ -62,6 +107,7 @@ persistent thought cache or automatically apply that budget.
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 test_governor.py
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_budgets
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_adaptive
 ```
 
 The original seven tests cover entropy, information gain, value estimates,

@@ -5,6 +5,10 @@ from governor import Governor, shannon_entropy
 
 
 class BudgetTests(unittest.TestCase):
+    def test_decimal_cost_boundary(self):
+        g = Governor(token_price=0.1, max_cost=0.3)
+        self.assertEqual(g.allowance(100), 3)
+
     def test_token_limit_overrides_warmup(self):
         g = Governor(max_tokens=10, min_steps=100)
         self.assertEqual(g.allowance(50), 10)

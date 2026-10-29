@@ -9,6 +9,7 @@ Dependency-free Python 3. Run tests: python3 test_governor.py
 """
 
 import math
+from decimal import Decimal
 
 
 def shannon_entropy(probs):
@@ -68,6 +69,8 @@ class Governor:
                 raise ValueError(name + " must be an integer >= " + str(minimum))
         if patience is None or min_steps is None:
             raise ValueError("patience and min_steps must be integers")
+        if token_price is None or answer_value is None:
+            raise ValueError("token_price and answer_value must be finite numbers")
         self.token_price = token_price
         self.answer_value = answer_value
         self.tau = tau if tau is not None else tau_threshold(token_price, answer_value)
@@ -115,7 +118,7 @@ class Governor:
         if self.max_tokens is not None:
             result = min(result, self.max_tokens - self.tokens_spent)
         if self.max_cost is not None and self.token_price > 0:
-            remaining = max(0, math.floor(self.max_cost / self.token_price)
+            remaining = max(0, int(Decimal(str(self.max_cost)) / Decimal(str(self.token_price)))
                             - self.tokens_spent)
             result = min(result, remaining)
         return result
