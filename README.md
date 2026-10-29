@@ -1,51 +1,73 @@
 # TokenBurn Governor 🦖
 
-**Entropy-gated thinking budgets — stop frontier models from burning tokens on redundant thought.**
+Provider-neutral controls to limit reasoning spend across model calls.
+Dependency-free Python 3.
 
-## The problem
-Frontier models (Claude Opus, GPT-class) bill *thinking* tokens at the output rate — the most expensive tier (e.g. **$20 per 1M tokens**). Most of that spend is redundant: the model re-derives the same conclusions over and over. At scale, that's death by a thousand re-reasonings.
+## Control the next call's budget
 
-## The math
-This repo treats reasoning as a stochastic process and applies three control laws:
-
-### 1. Entropy Gate — Information Gain per Token (IGT)
-Let `H_t` be the Shannon entropy of the model's candidate-action distribution at step `t`.
-
-```
-IGT(t) = (H_prev − H_t) / tokens_spent
-```
-
-Thinking is only worth tokens while it is *reducing uncertainty*. When IGT falls below a cost-calibrated threshold `tau`, the governor forces an answer. This is a stopping rule in the family of Chernoff stopping / optimal experiment design.
-
-### 2. Value-of-Information Pricing (VOI)
-```
-VOI = p(decision_flips) × answer_value − token_price
-```
-
-`p(flip)` is estimated from the entropy-drop rate (`tanh(dH/dtokens)`). Stop when `VOI < 0` — think exactly until the marginal value of thought equals the marginal price of a token. Economically optimal stopping.
-
-### 3. Decay-Compressed Thought Cache
-```
-C_n = C₀ · rⁿ,  r ∈ (0,1)
-```
-
-Contexts the agent has reasoned about before get geometrically smaller thinking budgets. Never pay full price twice for the same thought.
-
-## Usage
 ```python
 from governor import Governor
 
-g = Governor(token_price=20.0 / 1_000_000, answer_value=1.0)
-verdict = g.observe(probs=[0.9, 0.1], tokens_this_step=50)
-# 'THINK' or 'STOP'
+g = Governor(
+    token_price=20.0 / 1_000_000,  # illustrative dollars per reasoning token
+    max_tokens=1000,
+    max_cost=0.02,              # reasoning-only dollar budget
+    patience=2,                # consecutive uninformative steps before STOP
+)
+
+limit = g.allowance(500)
+if limit > 0:
+    # Pass limit to your substrate's supported token budget parameter.
+    # Make the call, then report its ACTUAL incremental reasoning usage:
+    verdict = g.observe(tokens_this_step=200)
+    print(verdict, g.cost_spent, g.stop_reason)
 ```
+
+Call `allowance()` before each sequential request and skip the call if it returns
+zero. It returns the smallest of the requested tokens, remaining token budget,
+and affordable whole tokens. It does not reserve tokens: report actual usage
+before making another call. Use a separate Governor per request/session budget;
+concurrent callers need external synchronization and reservation.
+
+`observe()` accepts positive integer token increments, not cumulative totals.
+With no probabilities, only budget limits apply. With candidate probabilities,
+`observe(probs=[0.9, 0.1], tokens_this_step=50)` also checks entropy reduction
+per token and a value-of-information heuristic. Probabilities must be finite,
+nonnegative, and sum to one. Many APIs do not expose suitable probabilities;
+do not fabricate them from hidden reasoning or confidence text.
+
+Hard budgets override `min_steps`. STOP remains in effect for that Governor.
+`stop_reason` is `token_budget`, `cost_budget`, or `stalled_reasoning`.
+`patience` tolerates transient plateaus and resets when progress resumes.
+Omitting limits preserves the original unbounded budget behavior. Select limits
+for your workload; the library makes no measured cost-saving or quality guarantee.
+
+## Integration limits
+
+This library advises your substrate; it cannot interrupt a provider request by
+itself. Apply provider-supported reasoning/output limits or cancellation in your
+adapter. Usage reported after a call is already billed: an oversized completed
+call can exceed the budget. Reserve input and final-answer costs separately;
+`cost_spent` estimates reasoning cost at the configured fixed per-token price.
+Provider billing, cached tokens, and combined output caps may differ.
+
+Entropy reduction is a heuristic, not proof of correctness. Its tanh-based
+value estimate is not calibrated to a model's probability of improving an answer.
+Validate savings and answer quality on representative tasks before deployment.
+`decay_budget(C0, r, n)` computes a geometric budget; it does not implement a
+persistent thought cache or automatically apply that budget.
 
 ## Tests
-```
-python3 test_governor.py
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 python3 test_governor.py
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_budgets
 ```
 
-All seven tests pass: entropy math, IGT, VOI pricing, decay budgets, stopping on redundant thought, continuing while informative, and geometric cache budgets.
+The original seven tests cover entropy, information gain, value estimates,
+stopping, and geometric budgets. Additional tests cover spending boundaries,
+usage-only integration, patience, persistent stopping, and invalid inputs.
 
 ## License
+
 GPL-3.0 — see [LICENSE](LICENSE).

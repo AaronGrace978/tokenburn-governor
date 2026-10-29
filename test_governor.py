@@ -1,5 +1,7 @@
 """Tests for the TokenBurn Governor. Run: python3 test_governor.py"""
 
+import math
+
 from governor import (shannon_entropy, information_gain_per_token,
                       value_of_information, decay_budget, tau_threshold, Governor)
 
