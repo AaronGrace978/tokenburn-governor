@@ -48,4 +48,4 @@ python3 test_governor.py
 All seven tests pass: entropy math, IGT, VOI pricing, decay budgets, stopping on redundant thought, continuing while informative, and geometric cache budgets.
 
 ## License
-MIT
+GPL-3.0 — see [LICENSE](LICENSE).
